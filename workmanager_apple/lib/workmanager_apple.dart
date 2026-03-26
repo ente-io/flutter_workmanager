@@ -1,8 +1,16 @@
 import 'dart:ui';
+import 'package:flutter/services.dart';
 import 'package:workmanager_platform_interface/workmanager_platform_interface.dart';
+
+typedef TaskExpirationHandler = Future<void> Function(String taskName);
 
 /// Apple (iOS/macOS) implementation of [WorkmanagerPlatform].
 class WorkmanagerApple extends WorkmanagerPlatform {
+  static const MethodChannel _expirationChannel = MethodChannel(
+    'dev.fluttercommunity.workmanager/ios_expiration',
+  );
+  static TaskExpirationHandler? _taskExpirationHandler;
+
   /// The Pigeon API instance for type-safe communication.
   final WorkmanagerHostApi _api = WorkmanagerHostApi();
 
@@ -14,17 +22,38 @@ class WorkmanagerApple extends WorkmanagerPlatform {
     WorkmanagerPlatform.instance = WorkmanagerApple();
   }
 
+  static Future<void> setTaskExpirationHandler(
+    TaskExpirationHandler? handler,
+  ) async {
+    _taskExpirationHandler = handler;
+    _expirationChannel.setMethodCallHandler((call) async {
+      if (call.method != 'taskExpired' || _taskExpirationHandler == null) {
+        return;
+      }
+      final arguments = (call.arguments as Map?)?.cast<Object?, Object?>();
+      final taskName = arguments?['taskName'] as String?;
+      if (taskName == null) {
+        return;
+      }
+      await _taskExpirationHandler!(taskName);
+    });
+  }
+
+  static Future<void> clearTaskExpirationHandler() =>
+      setTaskExpirationHandler(null);
+
   @override
   Future<void> initialize(
     Function callbackDispatcher, {
     @Deprecated(
-        'Use WorkmanagerDebug handlers instead. This parameter has no effect.')
+      'Use WorkmanagerDebug handlers instead. This parameter has no effect.',
+    )
     bool isInDebugMode = false,
   }) async {
     final callback = PluginUtilities.getCallbackHandle(callbackDispatcher);
-    await _api.initialize(InitializeRequest(
-      callbackHandle: callback!.toRawHandle(),
-    ));
+    await _api.initialize(
+      InitializeRequest(callbackHandle: callback!.toRawHandle()),
+    );
   }
 
   @override
@@ -40,22 +69,24 @@ class WorkmanagerApple extends WorkmanagerPlatform {
     String? tag,
     OutOfQuotaPolicy? outOfQuotaPolicy,
   }) async {
-    await _api.registerOneOffTask(OneOffTaskRequest(
-      uniqueName: uniqueName,
-      taskName: taskName,
-      inputData: inputData?.cast<String?, Object?>(),
-      initialDelaySeconds: initialDelay?.inSeconds,
-      constraints: constraints,
-      existingWorkPolicy: existingWorkPolicy,
-      backoffPolicy: backoffPolicyDelay != null && backoffPolicy != null
-          ? BackoffPolicyConfig(
-              backoffPolicy: backoffPolicy,
-              backoffDelayMillis: backoffPolicyDelay.inMilliseconds,
-            )
-          : null,
-      tag: tag,
-      outOfQuotaPolicy: outOfQuotaPolicy,
-    ));
+    await _api.registerOneOffTask(
+      OneOffTaskRequest(
+        uniqueName: uniqueName,
+        taskName: taskName,
+        inputData: inputData?.cast<String?, Object?>(),
+        initialDelaySeconds: initialDelay?.inSeconds,
+        constraints: constraints,
+        existingWorkPolicy: existingWorkPolicy,
+        backoffPolicy: backoffPolicyDelay != null && backoffPolicy != null
+            ? BackoffPolicyConfig(
+                backoffPolicy: backoffPolicy,
+                backoffDelayMillis: backoffPolicyDelay.inMilliseconds,
+              )
+            : null,
+        tag: tag,
+        outOfQuotaPolicy: outOfQuotaPolicy,
+      ),
+    );
   }
 
   @override
@@ -72,23 +103,25 @@ class WorkmanagerApple extends WorkmanagerPlatform {
     Duration? backoffPolicyDelay,
     String? tag,
   }) async {
-    await _api.registerPeriodicTask(PeriodicTaskRequest(
-      uniqueName: uniqueName,
-      taskName: taskName,
-      frequencySeconds: frequency?.inSeconds ?? 900, // Default 15 minutes
-      flexIntervalSeconds: flexInterval?.inSeconds,
-      inputData: inputData?.cast<String?, Object?>(),
-      initialDelaySeconds: initialDelay?.inSeconds,
-      constraints: constraints,
-      existingWorkPolicy: existingWorkPolicy,
-      backoffPolicy: backoffPolicyDelay != null && backoffPolicy != null
-          ? BackoffPolicyConfig(
-              backoffPolicy: backoffPolicy,
-              backoffDelayMillis: backoffPolicyDelay.inMilliseconds,
-            )
-          : null,
-      tag: tag,
-    ));
+    await _api.registerPeriodicTask(
+      PeriodicTaskRequest(
+        uniqueName: uniqueName,
+        taskName: taskName,
+        frequencySeconds: frequency?.inSeconds ?? 900, // Default 15 minutes
+        flexIntervalSeconds: flexInterval?.inSeconds,
+        inputData: inputData?.cast<String?, Object?>(),
+        initialDelaySeconds: initialDelay?.inSeconds,
+        constraints: constraints,
+        existingWorkPolicy: existingWorkPolicy,
+        backoffPolicy: backoffPolicyDelay != null && backoffPolicy != null
+            ? BackoffPolicyConfig(
+                backoffPolicy: backoffPolicy,
+                backoffDelayMillis: backoffPolicyDelay.inMilliseconds,
+              )
+            : null,
+        tag: tag,
+      ),
+    );
   }
 
   @override
@@ -99,14 +132,16 @@ class WorkmanagerApple extends WorkmanagerPlatform {
     Map<String, dynamic>? inputData,
     Constraints? constraints,
   }) async {
-    await _api.registerProcessingTask(ProcessingTaskRequest(
-      uniqueName: uniqueName,
-      taskName: taskName,
-      inputData: inputData?.cast<String?, Object?>(),
-      initialDelaySeconds: initialDelay?.inSeconds,
-      networkType: constraints?.networkType,
-      requiresCharging: constraints?.requiresCharging,
-    ));
+    await _api.registerProcessingTask(
+      ProcessingTaskRequest(
+        uniqueName: uniqueName,
+        taskName: taskName,
+        inputData: inputData?.cast<String?, Object?>(),
+        initialDelaySeconds: initialDelay?.inSeconds,
+        networkType: constraints?.networkType,
+        requiresCharging: constraints?.requiresCharging,
+      ),
+    );
   }
 
   @override

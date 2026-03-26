@@ -26,7 +26,10 @@ public class WorkmanagerPlugin: FlutterPluginAppLifeCycleDelegate, FlutterPlugin
             backgroundMode: .backgroundProcessingTask(identifier: identifier)
         )
 
-        task.expirationHandler = { operation.cancel() }
+        task.expirationHandler = {
+            operation.handleExpiration()
+            operation.cancel()
+        }
         operation.completionBlock = { task.setTaskCompleted(success: !operation.isCancelled) }
 
         operationQueue.addOperation(operation)
@@ -51,7 +54,10 @@ public class WorkmanagerPlugin: FlutterPluginAppLifeCycleDelegate, FlutterPlugin
             backgroundMode: .backgroundPeriodicTask(identifier: identifier)
         )
 
-        task.expirationHandler = { operation.cancel() }
+        task.expirationHandler = {
+            operation.handleExpiration()
+            operation.cancel()
+        }
         operation.completionBlock = { task.setTaskCompleted(success: !operation.isCancelled) }
 
         operationQueue.addOperation(operation)

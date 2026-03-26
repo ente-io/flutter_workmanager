@@ -53,6 +53,11 @@ class BackgroundWorker {
     let backgroundMode: BackgroundMode
     let flutterPluginRegistrantCallback: FlutterPluginRegistrantCallback?
     let inputData: [String: Any]?
+    private let stateQueue = DispatchQueue(label: "dev.fluttercommunity.workmanager.expiration")
+    private var expirationChannel: FlutterMethodChannel?
+    private var isReadyForExpirationCallback = false
+    private var pendingExpiration = false
+    private var didSendExpiration = false
 
     init(
         mode: BackgroundMode, inputData: [String: Any]?,
@@ -67,6 +72,59 @@ class BackgroundWorker {
         static let name = "\(WorkmanagerPlugin.identifier)/background_channel_work_manager"
         static let initialized = "backgroundChannelInitialized"
         static let onResultSendCommand = "onResultSend"
+    }
+
+    private struct ExpirationChannel {
+        static let name = "\(WorkmanagerPlugin.identifier)/ios_expiration"
+        static let taskExpired = "taskExpired"
+    }
+
+    private var currentTaskName: String {
+        backgroundMode.onResultSendArguments["\(WorkmanagerPlugin.identifier).DART_TASK"] ?? "unknown"
+    }
+
+    func handleExpiration() {
+        var shouldDispatch = false
+        stateQueue.sync {
+            guard !didSendExpiration else {
+                return
+            }
+            if isReadyForExpirationCallback {
+                didSendExpiration = true
+                shouldDispatch = true
+            } else {
+                pendingExpiration = true
+            }
+        }
+
+        if shouldDispatch {
+            dispatchExpiration()
+        }
+    }
+
+    private func flushPendingExpirationIfNeeded() {
+        var shouldDispatch = false
+        stateQueue.sync {
+            isReadyForExpirationCallback = true
+            if pendingExpiration && !didSendExpiration {
+                pendingExpiration = false
+                didSendExpiration = true
+                shouldDispatch = true
+            }
+        }
+
+        if shouldDispatch {
+            dispatchExpiration()
+        }
+    }
+
+    private func dispatchExpiration() {
+        DispatchQueue.main.async {
+            self.expirationChannel?.invokeMethod(
+                ExpirationChannel.taskExpired,
+                arguments: ["taskName": self.currentTaskName]
+            )
+        }
     }
 
     /// The result is discardable due to how [BackgroundTaskOperation] works.
@@ -105,6 +163,10 @@ class BackgroundWorker {
             libraryURI: flutterCallbackInformation.callbackLibraryPath
         )
         flutterPluginRegistrantCallback?(flutterEngine!)
+        expirationChannel = FlutterMethodChannel(
+            name: ExpirationChannel.name,
+            binaryMessenger: flutterEngine!.binaryMessenger
+        )
 
         var flutterApi: WorkmanagerFlutterApi? = WorkmanagerFlutterApi(binaryMessenger: flutterEngine!.binaryMessenger)
 
@@ -118,6 +180,7 @@ class BackgroundWorker {
         flutterApi?.backgroundChannelInitialized { result in
             switch result {
             case .success:
+                self.flushPendingExpirationIfNeeded()
                 // Get the task name from backgroundMode
                 let taskName = self.backgroundMode.onResultSendArguments["\(WorkmanagerPlugin.identifier).DART_TASK"] ?? ""
 
